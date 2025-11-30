@@ -1,0 +1,743 @@
+---
+title: "Estimación de la Curva de Phillips para Finlandia"
+author: "JM Arti"
+format: pdf
+editor: visual
+---
+
+### CASO DE FINLANDIA
+
+![](https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Flag_of_Finland.svg/960px-Flag_of_Finland.svg.png){width="297"}
+
+## 0.Introducción y comprobaciones previas
+
+```{r setup, include=FALSE, eval=FALSE}
+
+# rm(list=ls()) 
+# install.packages()
+```
+
+El objetivo es contrastar si existe un tradeoff entre inflación (inf) y desempleo (des). Esto se realiza mediante:
+
+-   La estimación de la **curva de Phillips estática** .
+
+-   La estimación de la **curva de Phillips dinámica** (con retardos).
+
+-   Contrastes de **cambio estructural** (Chow) y otros supuestos clásicos (autocorrelación, heteroscedasticidad, etc.).
+
+Realizaremos el trabajo con el país de **Finlandia**, teniendo en cuenta ciertas peculiaridades de la serie de datos que tendremos como fuente.
+
+## 1.Librerías Generales
+
+Carga de librerías para usar en este proyecto
+
+```{r}
+
+#install.packages( "WDI")
+#install.packages( "DT")
+#install.packages( "ggplot2")
+#install.packages( "ggfortify")
+#install.packages( "urca")
+#install.packages( "fUnitRoots")
+#install.packages( "lmtest")
+#install.packages("car")
+#install.packages("strucchange")
+#install.packages("dynlm")
+
+library("WDI")
+library("DT")
+library("ggplot2")
+library("ggfortify")
+library("urca")
+library("fUnitRoots")
+library("lmtest")
+library("car")
+library("strucchange")
+library("dynlm")
+```
+
+## 2.Descarga de datos para Finlandia de Inflación y Desempleo.
+
+Seleccionamos datos de inflación y desempleo de Finlandia.
+
+```{r}
+# Obtener datos de inflación y desempleo para Finlandia (1960-2023)
+data_FIN <- WDI(indicator = c("desempleo" = "SL.UEM.TOTL.NE.ZS", 
+                                     "inflacion" = "FP.CPI.TOTL.ZG"), 
+                       country = "FIN", start = 1960, end = 2023)
+
+# Para ver las primeras filas de los datos
+head(data_FIN)
+```
+
+## 3.Preparación de los datos
+
+Observamos que en los datos del banco mundial la serie de desempleo para Finlandia empieza a contabilizarse en otro año.
+
+```{r}
+# Verificar si hay valores NA en la columna de desempleo
+sum(is.na(data_FIN[, 1]))
+# Eliminar filas con valores faltantes
+data_FIN_clean <- na.omit(data_FIN)
+# Verificar que no quedan NAs
+sum(is.na(data_FIN_clean))
+```
+
+Ahora, filtramos el dataframe a partir del año 1969 y convertimos los datos en serie temporal
+
+```{r}
+# Convertir los datos en formato de serie temporal (desde 1969)
+data_FIN_clean <- ts(data_FIN_clean[, c("desempleo", "inflacion")], 
+                     start = c(1969), end = c(2023), frequency = 1)
+
+# Para ver las primeras filas de los datos
+head(data_FIN_clean)
+```
+
+## 4. Representación gráfica de las series temporales
+
+```{r}
+# Gráfico con la función "plot"
+plot(data_FIN_clean, col = 4, xlab = "Año", main = "Finlandia. Tasa de Desempleo e Inflación")
+
+# Gráfico con la función "autoplot"
+autoplot(data_FIN_clean, facets = TRUE) + 
+  xlab("Año") + ylab("") +
+  ggtitle("Finlandia. Tasa de Desempleo e Inflación")
+
+# Representación conjunta con "ts.plot"
+ts.plot(data_FIN_clean[, 1], data_FIN_clean[, 2], col = c(2, 4), 
+        gpars = list(xlab = "Año", ylab = ""), 
+        main = "Finlandia. Tasas de Desempleo e Inflación")
+legend("topleft", legend = c("Desempleo", "Inflación"), col = c(2, 4),
+       lty = c(3, 1), bty = "n")
+```
+
+## 5. Diagrama de dispersión
+
+El periodo de análisis incluye el periodo de “gran inflación de los años 70” en el caso finlandés tenemos datos entre 1969 y 1982, aparentemente este país no fue tan golpeado como los Estados Unidos por la crisis del petroleo. Vemos el diagrama de dispersión:
+
+```{r}
+# Diagrama de dispersión Inflación-Desempleo (1969-2023)
+y <- as.vector(data_FIN_clean[, 2]) # Inflación
+x <- as.vector(data_FIN_clean[, 1]) # Desempleo
+plot(x, y, main = "Finlandia. 1969-2023", col = 2, 
+     xlab = "Desempleo", ylab = "Inflación") +
+  abline(h = 0, col = "black") +
+  abline(lm(y ~ x), col = "gold")
+```
+
+Con la representación gráfica, al igual que el caso norteamericano, no podemos saber si existe *trade-off* claro entre desempleo e inflación. Analizamos las submuestras, siendo la primera más corta que el caso norteamericano.
+
+```{r}
+# Submuestra 1969-1982 (periodo de Gran Inflación)
+data_FIN.1 <- window(data_FIN_clean, frequency = 1, start = c(1969), end = c(1982))
+
+# Submuestra 1983-2023 (periodo de menor inflación)
+data_FIN.2 <- window(data_FIN_clean, frequency = 1, start = c(1983), end = c(2023))
+```
+
+```{r}
+# Diagrama de dispersión para 1969-1982
+# Diagrama de dispersión Inflación-Desempleo (1969-1982)
+y <- as.vector(data_FIN.1[, 2]) # Inflación
+x <- as.vector(data_FIN.1[, 1]) # Desempleo
+plot(x, y, main = "Finlandia. 1969-1982", col = 2, 
+     xlab = "Desempleo", ylab = "Inflación") +
+  abline(h = 0, col = "black") +
+  abline(lm(y ~ x), col = "green")
+
+# Diagrama de dispersión para 1983-2023
+y <- as.vector(data_FIN.2[, 2])
+x <- as.vector(data_FIN.2[, 1])
+plot(x, y, main = "Finlandia. 1983-2023", col = 2, 
+     xlab = "Desempleo", ylab = "Inflación") +
+  abline(h = 0, col = "black") +
+  abline(lm(y ~ x), col = "blue")
+```
+
+Vemos claramente que existe una relación de *trade-off* entre inflación y desempleo, a partir de 1983. Anteriormente parece que tambien, pero la pendiente es casi imperceptible.
+
+## 6. Estimación de la curva de Phillips para Finlandia
+
+Verificamos el *tradeoff* entre inflación ($inf_t$) y desempleo ($des_t$). Estimamos por MCO la curva de Phillips estática, y la curva de Phillips aumentada con expectativas. Contrastamos la estacionariedad de las variables. Si las variables no son estacionarias la estimación MCO es sesgada e inconsistente y los estadísticos de contraste habituales no serán válidos.
+
+Aplicamos el contraste de raíz unitaria de Dickey Fuller Aumentado (ADF). Para el desempleoel contraste de ADF con la *ecuación con constante*. La inflación sí muestra una tendencia durante la primera parte de la muestra por lo que se escoge la *ecuación con constante y con tendencia*. Se consideran 10 retardos al igual que en el caso norteamericano.
+
+```{r}
+# Contraste de estacionariedad (raíz unitaria) para el desempleo  (1960-2023)
+summary(ur.df(y = data_FIN_clean[, 1], lags = 10, type = "drift", selectlags = "BIC"))
+```
+
+Resultados del contraste de estacionariedad para el desempleo:
+
+-   En base al criterio BIC se ha seleccionado 1 retardo.
+-   El estadístico de DFA (tau2) es igual a -3.51.
+-   Se rechaza la nula de raíz unitaria al 5% y por tanto la serie es estacionaria (I(0) con media constante)
+
+```{r}
+
+
+# Contraste de raíz unitaria para la inflación (1969-2023)
+summary(ur.df(y = data_FIN_clean[, 2], lags = 10, type = "trend", selectlags = "BIC"))
+```
+
+Resultados del contraste de estacionariedad para la inflación:
+
+-   En base al criterio BIC se ha seleccionado 1 retardo.
+
+-   El estadístico de DFA (tau3) es igual a -4.04
+
+-   La tendencia incluida en la ecuación es significativa, por tanto la serie es estacionaria alrededor de una tendencia (I(0) con tendencia)
+
+Ahora hacemos el contraste con el paquete ***fUnitsRoots,*** consideramos 1 retardo (lags=1), que es el número de retardos seleccionado por la función *ur.df* antes, para la inflación y para el desempleo.
+
+```{r}
+# Desempleo (1960-2023)
+# Con la función "unitrootTest" (valores críticos de MacKinnon (1996))
+unitrootTest(data_FIN_clean[,1], lags = 1, type = c("c")) 
+```
+
+```{r}
+# Alternativamente, con la función "adfTest" (valores críticos de Dickey Fuller)
+adfTest(data_FIN_clean[,1], lags = 1, type = c("c"))
+```
+
+```{r}
+# Le damos nombre y creamos un objeto con la información del contraste. 
+DF_des<-adfTest(data_FIN_clean[,1], lags = 1, type = c("c")) 
+#Para comprobar que los residuos de la ecuación de DFA son un ruido blanco, vemos el correlograma de los residuos
+acf(DF_des@test$lm$residuals, lag.max = 20, main = "Función de Autocorrelación (ACF)")
+```
+
+El resultado del contraste indica que el estadístico de DFA es igual a
+
+```         
+-2.9929
+```
+
+con un p-valor
+
+```         
+0.0419 
+```
+
+(valores críticos MacKinnon, 1996). Se rechaza la hipótesis nula de raíz unitaria al 5%.
+
+Realizamos los cálculos para la inflación:
+
+```{r}
+# Inflación (1960-2023)
+# Con "unitrootTest" (valores críticos de MacKinnon (1996))
+unitrootTest(data_FIN_clean[,2], lags = 1, type = c("ct")) 
+```
+
+```{r}
+# Con "adfTest" (valores críticos de Dickey Fuller)
+adfTest(data_FIN_clean[,2], lags = 1, type = c("ct")) 
+```
+
+```{r}
+# Le damos nombre y creamos un objeto con la información del contraste. 
+DF_inf<-adfTest(data_FIN_clean[,2], lags = 1, type = c("ct")) 
+#Para comprobar que los residuos son un ruido blanco, vemos el correlograma de los residuos
+acf(DF_inf@test$lm$residuals, lag.max = 20, main = "Función de Autocorrelación (ACF)")
+```
+
+El resultado del contraste indica que el estadístico de DFA es igual a
+
+```         
+-3.7043
+```
+
+, con un p-valor
+
+```         
+0.03049 
+```
+
+(valores críticos MacKinnon, 1996). Se rechaza la hipótesis nula de raíz unitaria al 5%.
+
+Comrpobamos con los contrastes de raíz unitaria que las series de inflación y desempleo son I(0), por lo que se pueden incluir en niveles en una regresión MCO.
+
+## 7. Estimación de la Curva de Phillips estática
+
+La curva de Phillips estática viene dada por la siguiente ecuación: $$\ inf_t= \beta_0 + \beta_1 des_t + \epsilon_t $$
+
+Aplicamos según lo visto en el caso de los Estados Unidos, la curva de Phillips supone una tasa natural de desempleo constante y expectativas de inflación constantes, y se utiliza para estudiar la relación contemporánea entre la inflación y el desempleo. Si hay *tradeoff* entre inflación y desempleo entonces $\beta_1<0$. 
+
+```{r}
+# Renombrar las columnas para facilitar
+colnames(data_FIN_clean) <- c("des", "inf")
+colnames(data_FIN.1) <- c("des", "inf")
+colnames(data_FIN.2) <- c("des", "inf")
+```
+
+*7.1. Estimación del modelo* Estimamos el modelo para toda la serie temporal $\ inf_t= \beta_0 + \beta_1 des_t + \epsilon_t$ (1969-2023). Para ello, se utiliza la función *lm*.
+
+```{r}
+
+# Estimar el modelo para la muestra completa (1969-2023)
+modelo1 <- lm(inf ~ des, data = data_FIN_clean)
+summary(modelo1)
+
+```
+
+El resultado si nos muestra *tradeoff* entre inflación y desempleo: $\hat{\beta}_1 < 0$. El p-valor del estadístico t para $\hat{\beta}_1$ es -0.37888 si existe relación entre desempleo e inflación.
+
+El periodo de análisis incluye el periodo de “Gran Inflación" de los años 70, analizando las submuestras por separado comprobamos si la relación entre inflación y desempleo cambia después de este periodo nflacionista, estimamos la ecuación por separado para cada una de las dos submuestras: (1960-1982) y (1983-2023).\
+
+Estimamos la curva de Phillips estática para la primera submuestra (1960-1982).
+
+```{r}
+# Estimar el modelo para la submuestra de 1960-1982
+modelo1.1 <- lm(inf ~ des, data = data_FIN.1)
+summary(modelo1.1)
+```
+
+Ahora estimamos a segunda submuestra (1983-2023)
+
+```{r}
+# Estimar el modelo para la submuestra de 1983-2023
+modelo1.2 <- lm(inf ~ des, data = data_FIN.2)
+summary(modelo1.2)
+```
+
+Los resultados de las estimaciones por submuestras confirman el *trade-off* . Para la primera submuestra $\hat{\beta}_1$ es neagtiva y significativa al 10%, igual para el periodo (1983-2023) $\hat{\beta}_1$, mostrando un *trade-off* entre inflación y desempleo.
+
+*7.2. Contrastes de autocorrelación.*
+
+Comprobamos la existencia de problemas de autocorrelación, los cuáles son habituales en modelos estáticos.
+
+```{r}
+# Función de autocorrelación para toda la muestra 
+acf(modelo1$residuals, lag.max = 20, main = "Función de Autocorrelación (1969-2023)")
+# La función de autocorrelación de los residuos del modelo (1969-1982)
+acf(modelo1.1$residuals, lag.max = 20, main = "Función de Autocorrelación (1969-1982)")
+# La función de autocorrelación de los residuos del modelo (1983-2023)
+acf(modelo1.2$residuals, lag.max = 20, main = "Función de Autocorrelación (1983-2023)")
+
+```
+
+Como era de esperar, en los tres escenarios vemos que existe autocorrelación en el período 0.En segundo lugar, aplicamos el contraste de Durbin-Watson (DW) a los residuos de las tres ecuaciones estimadas.
+
+```{r}
+#Contraste de Durbin-Watson (1969-2023)
+dwtest(modelo1,alternative ="two.sided",iterations = 1000)
+```
+
+```{r}
+#Contraste de Durbin-Watson (1960-1982)
+dwtest(modelo1.1,alternative ="two.sided",iterations = 1000)
+```
+
+```{r}
+#Contraste de Durbin-Watson (1983-2023)
+dwtest(modelo1.2,alternative ="two.sided",iterations = 1000)
+```
+
+En todos los casos se rechaza la hipótesis nula de no autocorrelación, por lo que ***hay evidencia de correlacción serial de primer orden*****.** Ahora, aplicamos el contraste de autocorrelacion de Breusch-Godfrey (BG) en las tres ecuaciones estimadas.
+
+```{r}
+# Contraste de Breusch-Godfrey 
+bgtest(modelo1, order = 1) # para contrastar autocorrelación de primer orden
+bgtest(modelo1,order = 2) # para contrastar autocorrelación de segundo orden
+
+
+```
+
+```{r}
+#Contraste de Breusch-Godfrey (1969-1982)
+
+bgtest(modelo1.1, order = 1) # para contrastar autocorrelación de primer orden
+```
+
+```{r}
+bgtest(modelo1.1,order = 2) # para contrastar autocorrelación de hasta segundo orden
+
+```
+
+```{r}
+#Contraste de Breusch-Godfrey (1983-2023)
+bgtest(modelo1.2,order = 1) # para contrastar autocorrelación de primer orden
+```
+
+```{r}
+bgtest(modelo1.2,order = 2) # para contrastar autocorrelación de hasta segundo orden
+
+```
+
+Los contrastes de autocorrelación de primer y segundo orden confirman que hay autocorrelación. En los tres casos se rechaza la hipótesis nula de no autocorrelación.
+
+*7.3. Estimación con errores estándar robustos a la autocorrelación (Newey-West)* Newey-West proporciona errores estándar robustos a la autocorrelación y a la heteroscedasticidad, lo que permite obtener estadísticos de contraste válidos.
+
+```{r}
+# Para toda la muestra completa (1969-2023)
+coeftest(modelo1,vcov=NeweyWest(modelo1)) # 1969-2023
+
+```
+
+```{r}
+#Estimación con errores estándar robustos a la autocorrelación (Newey-West) (1960-1982)
+coeftest(modelo1.1,vcov=NeweyWest(modelo1.1)) # 1969-1982
+
+```
+
+```{r}
+#Estimación con errores estándar robustos a la autocorrelación (Newey-West) (1983-2023)
+coeftest(modelo1.2,vcov=NeweyWest(modelo1.2))# 1983-2023
+
+```
+
+Los resultados muestran que $\hat{\beta}_1$ es negativo pero solo es significativo en el modelo estimado para el periodo 1983-2023 pero no podemos garantizar la existencia de *tradeoff* entre inflación y desempleo el la primera submuestra.
+
+## 8. Contraste de cambio estructural
+
+Comprobamos la existencia de un cambio estructural en la relación entre inflación y desempleo, añadiendo variables ficticias aditivas y multiplicativas.
+
+Para estimar el modelo y realizar el contraste hay que generar previamente las variables ficticias, el cúal sería: $$\ inf_t= \beta_0 + \beta_1 des_t +  \beta_2 f_t + \beta_3 fdes_t +\epsilon_t $$ donde $f_t$ es una variable dicotómica aditiva de valor 0 hasta 1982 y valor 1 a partir de 1983, y $fdes_t$ es la variable ficticia multiplicativa: $fdes_t=f_t*des_t$.\
+
+El contraste de cambio estructural es:
+
+$$
+\left\{
+\begin{array}{lll}
+H_0: \beta_2=\beta_3=0\\
+H_1: no H_{0}
+\end{array}
+\right.$$
+
+Para estimar el modelo y realizar el contraste hay que generar previamente las variables ficticias.
+
+```{r}
+# Generar variables ficticias (=0 hasta 1982, =1 desde 1983)
+f <- ifelse(index(data_FIN_clean) > 1982, 1, 0)
+fdes <- f * data_FIN_clean[, "des"] #para generar la ficticia multiplicativa
+
+```
+
+```{r}
+# Verificar las variables ficticias
+summary(f)
+summary(fdes)
+```
+
+```{r}
+#Estimamos el modelo y lo guardamos en un objeto llamado modelo2
+modelo2 <- lm(inf ~ des + f + fdes, data = data_FIN_clean)
+summary(modelo2)
+
+```
+
+```{r}
+# La función de autocorrelación de los residuos del modelo con ficticias
+acf(modelo2$residuals, lag.max = 20, main = "Función de Autocorrelación")
+```
+
+El correlograma de los residuos del modelo con ficticias muestra autocorrelación positiva, aplicamos los contrastes de DW y BG.
+
+```{r}
+#Contraste de Durbin-Watson. Modelo con ficticias
+dwtest(modelo2,alternative ="two.sided",iterations = 1000)
+```
+
+```{r}
+#Contraste de Durbin-Watson. Modelo con ficticias
+dwtest(modelo2,alternative ="two.sided",iterations = 1000)
+```
+
+Los contrastes de autocorrelación rechazan la nula, existe autocorrelación.Por tanto, debemos aplicar el test de Chow corrigiendo las varianzas.
+
+```{r}
+# Especificamos el modelo en el que queremos hacer el contraste, la hipótesis nula y el estadístico de contraste
+linearHypothesis(modelo2, c("f=0","fdes=0"), vcov = NeweyWest(modelo2))
+```
+
+Estimación del modelo con ficticias con errores estándar robustos a la autocorrelación (Newey-West).
+
+```{r}
+coeftest(modelo2,vcov=NeweyWest(modelo2))#
+
+```
+
+Las ficticias no son significativas, la que coincide con los resultados anteriores, en Finlandia no se reflejo un cambio estructural por la crisis del petróleo.
+
+Para contrastar cambio estructural con la función *sctest*. Procedemos a encontrar la posición de 1983 en el Dataframe para hacer el contraste
+
+```{r}
+# Extraer el índice temporal (aplicar en caso de error)
+time_index <- time(data_FIN_clean)
+
+# Mostrar el índice temporal junto con los datos
+data_with_time <- cbind(time_index, data_FIN_clean)
+print(data_with_time)
+```
+
+```{r}
+# Convertir data_FIN en un objeto de serie temporal (solo aplicar en caso de error)
+data_FIN <- ts(data_FIN, start = c(1969), frequency = 1)
+
+# Verificar la clase nuevamente
+class(data_FIN)
+```
+
+```{r}
+# Supongamos que data_FIN es un objeto de serie temporal
+time_index <- time(data_FIN)
+
+# Encontrar la posición del año 1983
+pos_1983 <- which(time_index == 1983)
+print(pos_1983)
+
+# Verificar el resultado
+print(data_FIN[pos_1983, ])
+```
+
+```{r}
+# Contrastamos cambio en 1983, corresponde a la observación 15 del data frame
+sctest(inf~ des, data=data_FIN_clean, type = "Chow", point = 15)
+```
+
+El valor difiere, aqui si concluimos que existe un cambio estructural, lo visualizamos mejor en el gráfico con la función fs (si existen picos evidencia cambio estructural).
+
+```{r}
+# Con f-stats al desconocer la fecha de ruptura
+fs <- Fstats(inf~ des, data=data_FIN_clean)
+plot(fs)
+```
+
+Recapitulamos:
+
+```{r}
+# Cargar el paquete strucchange
+library(strucchange)
+
+# Verificar la estructura de data_FIN_clean
+str(data_FIN_clean)
+nrow(data_FIN_clean)
+colnames(data_FIN_clean)
+
+# Verificar el índice temporal
+time_index <- time(data_FIN_clean)
+print(time_index[15])  # Verificar que corresponde a 1983
+
+# Aplicar el contraste de Chow
+resultado <- sctest(inf ~ des, data = data_FIN_clean, type = "Chow", point = 15)
+
+# Mostrar el resultado
+print(resultado)
+
+```
+
+## 9. Estimación de la curva de Phillips aumentada con expectativas.
+
+Aquí se estima una versión de la curva de Phillips aumentada por expectativas para el intervalo temporal más reciente: 1983-2023 (data_FIN.2). Se queda fuera del análisis el periodo de "Gran Inflación" de los años 70 que puede distorsionar los resultados. El modelo econométrico es:
+
+$$\ inf_t= \beta_0 + \beta_1 \ inf_{t-1} + \beta_2 \ des_t +\beta_3 \ des_{t-1}+\epsilon_t  $$
+
+Contrastamos la existencia de estacionariedad con el test de DFA con la ecuación constante y sin tendencia
+
+```{r}
+#Desempleo (1983-2023)
+summary(ur.df(y=data_FIN.2[,1],lags=6, type='drift', selectlags=c("BIC")))
+```
+
+```{r}
+#Inflación (1983-2023)
+summary(ur.df(y=data_FIN.2[,2],lags=6, type='drift', selectlags=c("BIC")))
+```
+
+Resultados del contraste:
+
+-   En base al criterio BIC se selecciona el modelo con 1 retardo para las series de desempleo e inflación.
+
+-   El estadístico de DFA (tau2) es igual a
+
+    ```         
+    -3.58
+    ```
+
+    tanto para el desempleo como para la inflación
+
+-   Se rechaza la Hipótesis nula de raíz unitaria al 5% para la inflación, y al 10% para el desempleo, por lo que las dos series son estacionarias (I(0) de media constante).
+
+Contrastando estacionariedad con la función *unitrootTest:*
+
+```{r}
+# Desempleo (1983-2023)
+unitrootTest(data_FIN.2[,1], lags = 1, type = c("c")) 
+```
+
+```{r}
+# Inflación (1983-2023)
+unitrootTest(data_FIN.2[,2], lags = 1, type = c("c")) 
+
+```
+
+Comprobamos que ambas series son I(0) y podemos estimar por MCO
+
+*9.2. Estimación de la curva de Phillips aumentada con expectativas.*
+
+La curva de Phillips aumentada con expectativas: $\ inf_t= \beta_0 + \beta_1 \ inf_{t-1} + \beta_2 \ des_t +\beta_3 \ des_{t-1}+\epsilon_t$ es un modelo dinámico de endógena retardada.\
+
+```{r}
+# Modelo dinámico (1983-2023)
+modelo3 <- dynlm(inf ~ L(inf, 1) + des + L(des, 1), data = data_FIN.2)
+summary(modelo3)
+
+
+```
+
+Contrastamos autocorrelación:
+
+```{r}
+# La función de autocorrelación de los residuos del modelo3
+acf(modelo3$residuals, lag.max = 20, main = "Función de Autocorrelación (1983-2023)")
+```
+
+```{r}
+#Contrastes de autocorrelacion de Breusch-Godfrey en el modelo3
+bgtest(modelo3,order = 1) 
+```
+
+```{r}
+bgtest(modelo3,order = 2) 
+
+```
+
+En el modelo con dinámica no existe evidencia de autocorrelación, los contrastes no rechazan la hipótesis nula de *no autocorrelación*. Contrastamos la existencia de heterocedasticidad.
+
+```{r}
+#Contraste de heteroscedasticidad de Breusch-Pagan en el modelo3
+bptest(modelo3,data = data_FIN.2)
+```
+
+No se rechaza la nula, el modelo es homocedástico. Los resultados de los contrastes de significatividad individuales en el modelo estimado muestran que todas las variables son significativas, y que el desempleo tiene un efecto contemporáneo negativo y significativo sobre la inflación. Igualmente, el modelo cumple la condición de estabilidad porque $\left| \hat{\beta}_1 \right|<1$.
+
+Ahora representamos en un gráfico la serie de inflación, la serie estimada y los residuos del modelo observamos que el ajuste es relativamente bueno. Vemos el efectode la guerra de Ucrania en los residuos que toman valores más elevados y la serie estimada se ajusta peor a la serie observada, muy lógico, más siendo Finlandia frontera con Rusia (he invadido en el pasado soviético).
+
+```{r}
+# Comprobamos si existen valores faltantes en data_FIN.2
+sum(is.na(data_FIN.2))
+```
+
+```{r}
+residuos<-resid(modelo3)
+inflacion<-data_FIN.2[,"inf"]
+inflacion.estimada<-fitted(modelo3)
+```
+
+Comprobación de NAs en la columna de los residuos
+
+```{r}
+# Verificar valores faltantes en residuos
+sum(is.na(residuos))
+
+# Verificar valores faltantes en inflación estimada
+sum(is.na(inflacion.estimada))
+```
+
+Comprobaciones antes de graficar
+
+```{r}
+# Longitud de los vectores
+length(time(data_FIN.2))      # Índice temporal
+length(residuos)              # Residuos del modelo
+length(inflacion)             # Inflación observada
+length(inflacion.estimada)    # Inflación estimada
+```
+
+```{r}
+# Verificar la estructura de residuos, inflacion e inflacion.estimada
+str(residuos)
+str(inflacion)
+str(inflacion.estimada)
+
+# Verificar la estructura del objeto combinado
+datos_grafico <- cbind(residuos, inflacion, inflacion.estimada)
+str(datos_grafico)
+```
+
+```{r}
+autoplot(cbind(residuos,inflacion,inflacion.estimada), facets=FALSE) +
+  xlab("Year") + ylab("") +geom_hline(yintercept = 0, linetype = "dashed", color = "orange")+
+  ggtitle("Modelo dinámico. Residuos,valores observados y ajustados")
+```
+
+*9.1. Cálculo de los multiplicadores*
+
+-   El multiplicador de corto plazo (multiplicador de impacto) es $\beta_2$. El valor estimado es: $\hat{\beta}_2=-0.4149$. Es estadísticamente significativo, lo que sugiere un *tradeoff* contemporáneo entre inflación y desempleo. Si la tasa de desempleo sube 1 punto porcentual, en promedio la tasa de inflación disminuye 0.42 puntos porcentuales ese mismo año. El mercado de trabajo es un poco menos sensible a la inflación que el de los Estados Unidos.
+
+-   El multiplicador de largo plazo es: $\dfrac{\beta_2+\beta_3}{1- \beta_1}$. El valor estimado es 0.3189. Para contrastar si el multiplicador de largo plazo es significativo tenemos que llevar a cabo el siguiente contraste de hipótesis: $$
+    \left\{
+    \begin{array}{lll}
+    H_{0}:& \beta_{2}+\beta_{3}=0\\
+    H_{1}: & no  H_{0}
+    \end{array}
+    \right.$$
+
+```{r}
+# Especificamos el modelo en el que queremos hacer el contraste, la hipótesis nula y el estadístico de contraste
+linearHypothesis(modelo3,c("des+L(des, 1)=0"),test="F")
+```
+
+Indicandonos que para Finlandia en el largo plazo si existe una relación entre inflación y desempleo.
+
+## 10. Estimación de la curva de Phillips aumentada con expectativas (una versión más simple).
+
+```{r}
+#Para calcular las primeras diferencias de la inflación 
+dinf=diff(data_FIN.2[,"inf"])
+
+#Para ver un gráfico
+ts.plot(dinf, col=2, xlab="Year", ylab ="", main="Variación de la inflación en Finlandia (1984-2023)") 
+```
+
+Comprobamos que las primeras diferencias de la inflación son I(0).
+
+```{r}
+# Contraste de raíz unitaria sobre las primeras diferencias de la inflación (Ecuación con constante)
+summary(ur.df(y=dinf,lags=6, type='drift', selectlags=c("BIC")))
+```
+
+A continuación, estimamos el modelo
+
+```{r}
+#Estimamos el modelo y guardamos los resultados en un objeto llamado modelo4
+modelo4<-dynlm(dinf~des+L(des,1), data=data_FIN.2)
+summary(modelo4)
+```
+
+```{r}
+# La función de autocorrelación de los residuos del modelo4
+acf(modelo4$residuals, lag.max = 20, main = "Función de Autocorrelación")
+```
+
+```{r}
+#Contrastes de autocorrelacion de Breusch-Godfrey en el modelo4
+bgtest(modelo4,order = 1) 
+
+bgtest(modelo4,order = 2) 
+
+#Contraste de heteroscedasticidad de Breusch-Pagan en el modelo4
+bptest(modelo4)
+```
+
+Calculamos los multiplicadores:
+
+-   El multiplicador de corto plazo (multiplicador de impacto) es $\beta_1$. El valor estimado es: $\hat{\beta}_1=-0.4934$. El multiplicador de corto plazo es estadísticamente significativo, lo que sugiere un *tradeoff* contemporáneo entre la *variación* de la inflación y el desempleo.
+
+-   El multiplicador de largo plazo es: $\beta_1+\beta_2$. El valor estimado es -0.01036. Para contrastar si el multiplicador de largo plazo es significativo tenemos que llevar a cabo el siguiente contraste de hipótesis: $$
+    \left\{
+    \begin{array}{lll}
+    H_{0}:& \beta_{1}+\beta_{2}=0\\
+    H_{1}: & no  H_{0}
+    \end{array}
+    \right.$$
+
+```{r}
+# Especificamos el modelo en el que queremos hacer el contraste, la hipótesis nula y el estadístico de contraste
+linearHypothesis(modelo4,c("des+L(des, 1)=0"),test="F")
+```
+
+El estadístico F vale 0.0271 y tiene un p-valor=0.8701, por lo que no se rechaza la nula, mostrando que a la largo plazo no hay relación entre la variación de la inflación y el desempleo.
